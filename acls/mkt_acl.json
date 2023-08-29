@@ -1,0 +1,8 @@
+{
+  "access_control_list": [
+    {
+      "user_name": "stephen.carman@databricks.com",
+      "permission_level": "CAN_USE"
+    }
+  ]
+}
