@@ -1,0 +1,124 @@
+{
+    "autoscale.max_workers": {
+      "defaultValue": 3,
+      "maxValue": 10,
+      "type": "range"
+    },
+    "autoscale.min_workers": {
+      "hidden": true,
+      "type": "fixed",
+      "value": 1
+    },
+    "aws_attributes.availability": {
+      "hidden": true,
+      "type": "fixed",
+      "value": "SPOT_WITH_FALLBACK"
+    },
+    "aws_attributes.first_on_demand": {
+      "defaultValue": 1,
+      "minValue": 1,
+      "type": "range"
+    },
+    "aws_attributes.instance_profile_arn": {
+      "hidden": false,
+      "type": "fixed",
+      "value": "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz"
+    },
+    "aws_attributes.spot_bid_price_percent": {
+      "hidden": true,
+      "type": "fixed",
+      "value": 100
+    },
+    "aws_attributes.zone_id": {
+      "defaultValue": "auto",
+      "hidden": true,
+      "type": "unlimited"
+    },
+    "cluster_type": {
+      "type": "fixed",
+      "value": "job"
+    },
+    "custom_tags.business unit": {
+      "defaultValue": "data engineering/finance",
+      "type": "allowlist",
+      "values": [
+        "data engineering",
+        "MC",
+        "DAS",
+        "DEA"
+      ]
+    },
+    "custom_tags.cluster-type": {
+      "type": "fixed",
+      "value": "job"
+    },
+    "custom_tags.map-migrated": {
+      "type": "fixed",
+      "value": "mig5IYDAT5X7N"
+    },
+    "custom_tags.project": {
+      "isOptional": false,
+      "type": "unlimited"
+    },
+    "custom_tags.team": {
+      "defaultValue": "Data Engineering/Machine Learning/Data Science/Finance Operations/Partner Engineering",
+      "type": "allowlist",
+      "values": [
+        "Data Engineering",
+        "Machine Learning",
+        "Data Science",
+        "Operations",
+        "Partner Engineering"
+      ]
+    },
+    "dbus_per_hour": {
+      "maxValue": 50,
+      "type": "range"
+    },
+    "driver_instance_pool_id": {
+      "hidden": true,
+      "type": "forbidden"
+    },
+    "driver_node_type_id": {
+      "hidden": true,
+      "type": "fixed",
+      "value": "i3.xlarge"
+    },
+    "enable_elastic_disk": {
+      "hidden": true,
+      "type": "fixed",
+      "value": true
+    },
+    "instance_pool_id": {
+      "hidden": true,
+      "type": "forbidden"
+    },
+    "node_type_id": {
+      "defaultValue": "i4i.large",
+      "type": "allowlist",
+      "values": [
+        "i4i.large",
+        "i3.xlarge",
+        "i3.2xlarge"
+      ]
+    },
+    "num_workers": {
+      "defaultValue": 4,
+      "isOptional": true,
+      "type": "unlimited"
+    },
+    "runtime_engine": {
+      "hidden": true,
+      "type": "fixed",
+      "value": "STANDARD"
+    },
+    "spark_conf.spark.databricks.cluster.profile": {
+      "hidden": true,
+      "type": "forbidden"
+    },
+    "spark_version": {
+      "hidden": false,
+      "type": "unlimited",
+      "value": "13.3.x-scala2.12"
+    }
+  }
