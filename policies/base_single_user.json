@@ -27,7 +27,7 @@
   },
  "spark_version": {
     "type": "regex",
-    "pattern": "11\\.3\\.x-scala.*"
+    "pattern": "13\\.3\\.x-scala.*"
   },
   "runtime_engine": {
     "type": "fixed",
