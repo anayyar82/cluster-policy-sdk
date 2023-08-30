@@ -91,7 +91,7 @@
       "type": "forbidden"
     },
     "driver_node_type_id": {
-      "defaultValue": "i3.2xlarge",
+      "defaultValue": "i3.xlarge",
       "hidden": true,
       "type": "unlimited"
     },
@@ -103,11 +103,6 @@
     "instance_pool_id": {
       "hidden": true,
       "type": "forbidden"
-    },
-    "node_type_id": {
-      "defaultValue": "i3.xlarge",
-      "hidden": false,
-      "type": "unlimited"
     },
     "num_workers": {
       "hidden": true,
@@ -122,8 +117,18 @@
       "hidden": true,
       "type": "forbidden"
     },
+    "node_type_id": {
+    "type": "allowlist",
+    "values": [
+      "i3.xlarge",
+      "i3.2xlarge",
+      "i3.4xlarge",
+      "i3en.xlarge"
+    ],
+    "defaultValue": "i3.xlarge"
+   },
     "spark_version": {
-      "defaultValue": "auto:latest-ml",
-      "type": "unlimited"
-    }
+    "type": "regex",
+    "pattern": "13\\.3\\.x-scala.*"
   }
+}
