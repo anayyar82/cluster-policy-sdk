@@ -1,8 +1,8 @@
 {
   "access_control_list": [
     {
-      "group_name": "Azure-Security-FSSO-MC-Databricks-Dev-WS-DAS-User",
-      "permission_level": "CAN_USE"
+      "service_principal_name": "Azure-Security-FSSO-MC-Databricks-Dev-WS-DAS-User",
+      "permission_level": "CAN_MANAGE"
     }
   ]
 }
