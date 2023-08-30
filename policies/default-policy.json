@@ -181,7 +181,6 @@ Definitions
         "data engineering",
         "payments",
         "liquidity",
-        "ripplex",
         "finance"
       ]
     },
@@ -388,7 +387,6 @@ Definitions
       "values": [
         "payments",
         "liquidity",
-        "ripplex",
         "finance",
         "data engineering"
       ],
@@ -449,13 +447,12 @@ Definitions
       ]
     },
     "custom_tags.business unit": {
-      "defaultValue": "data engineering/payments/liquidity/ripplex/finance",
+      "defaultValue": "data engineering/payments/liquidity/finance",
       "type": "allowlist",
       "values": [
         "data engineering",
         "payments",
         "liquidity",
-        "ripplex",
         "finance"
       ]
     },
