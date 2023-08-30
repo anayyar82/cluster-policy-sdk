@@ -1,4 +1,4 @@
-DLT compute for DE/ML/DS/PE
+#DLT compute for DE/ML/DS/PE
 
 Definitions
 {
@@ -30,7 +30,7 @@ Definitions
     "aws_attributes.instance_profile_arn": {
       "hidden": false,
       "type": "fixed",
-      "value": "arn:aws:iam::413747852837:instance-profile/caspian-de-dev-profile"
+      "value": "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz"
     },
     "aws_attributes.spot_bid_price_percent": {
       "hidden": true,
@@ -47,7 +47,7 @@ Definitions
       "value": "dlt"
     },
     "custom_tags.business unit": {
-      "defaultValue": "data engineering/payments/liquidity/ripplex/finance",
+      "defaultValue": "data engineering/finance",
       "type": "allowlist",
       "values": [
         "data engineering",
@@ -158,7 +158,7 @@ Definitions
     "aws_attributes.instance_profile_arn": {
       "hidden": false,
       "type": "fixed",
-      "value": "arn:aws:iam::413747852837:instance-profile/caspian-de-dev-profile"
+      "value": "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz"
     },
     "aws_attributes.spot_bid_price_percent": {
       "hidden": true,
@@ -175,7 +175,7 @@ Definitions
       "value": "job"
     },
     "custom_tags.business unit": {
-      "defaultValue": "data engineering/payments/liquidity/ripplex/finance",
+      "defaultValue": "data engineering/finance",
       "type": "allowlist",
       "values": [
         "data engineering",
@@ -332,7 +332,7 @@ Definitions
     },
     "aws_attributes.instance_profile_arn": {
       "type": "fixed",
-      "value": "arn:aws:iam::413747852837:instance-profile/caspian-de-dev-profile",
+      "value": "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz",
       "hidden": false
     },
     "custom_tags.team": {
@@ -392,7 +392,7 @@ Definitions
         "finance",
         "data engineering"
       ],
-      "defaultValue": "payments/liquidity/ripplex/finance/data engineering"
+      "defaultValue": "payments/finance/data engineering"
     }
   }
 
@@ -428,7 +428,7 @@ Definitions
     "aws_attributes.instance_profile_arn": {
       "hidden": false,
       "type": "fixed",
-      "value": "arn:aws:iam::413747852837:instance-profile/caspian-de-dev-profile"
+      "value": "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz"
     },
     "aws_attributes.spot_bid_price_percent": {
       "hidden": true,
