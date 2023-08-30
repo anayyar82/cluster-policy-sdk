@@ -1,0 +1,129 @@
+{
+    "autoscale.max_workers": {
+      "defaultValue": 3,
+      "maxValue": 30,
+      "type": "range"
+    },
+    "autoscale.min_workers": {
+      "hidden": true,
+      "type": "fixed",
+      "value": 1
+    },
+    "autotermination_minutes": {
+      "hidden": true,
+      "type": "fixed",
+      "value": 0
+    },
+    "aws_attributes.availability": {
+      "hidden": true,
+      "type": "fixed",
+      "value": "SPOT_WITH_FALLBACK"
+    },
+    "aws_attributes.first_on_demand": {
+      "defaultValue": 100001,
+      "minValue": 1,
+      "type": "range"
+    },
+    "aws_attributes.instance_profile_arn": {
+      "hidden": false,
+      "type": "fixed",
+      "value": "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz"
+    },
+    "aws_attributes.spot_bid_price_percent": {
+      "hidden": true,
+      "type": "fixed",
+      "value": 100
+    },
+    "aws_attributes.zone_id": {
+      "defaultValue": "auto",
+      "hidden": true,
+      "type": "unlimited"
+    },
+    "cluster_type": {
+      "type": "allowlist",
+      "values": [
+        "all-purpose",
+        "job",
+        "dlt"
+      ]
+    },
+    "custom_tags.business unit": {
+      "defaultValue": "data engineering/payments/finance",
+      "type": "allowlist",
+      "values": [
+        "data engineering",
+        "MC",
+        "DAS",
+        "DEA"
+      ]
+    },
+    "custom_tags.map-migrated": {
+      "type": "fixed",
+      "value": "mig5IYDAT5X7N"
+    },
+    "custom_tags.project": {
+      "isOptional": false,
+      "type": "unlimited"
+    },
+    "custom_tags.team": {
+      "defaultValue": "Data Engineering/Machine Learning/Data Science/Operations/Partner Engineering",
+      "type": "allowlist",
+     "values": [
+        "Data Engineering",
+        "Machine Learning",
+        "Data Science",
+        "Operations",
+        "Partner Engineering"
+      ]
+    },
+    "data_security_mode": {
+      "defaultValue": "NONE",
+      "hidden": true,
+      "type": "unlimited"
+    },
+    "dbus_per_hour": {
+      "defaultValue": 50,
+      "hidden": true,
+      "type": "unlimited"
+    },
+    "driver_instance_pool_id": {
+      "hidden": true,
+      "type": "forbidden"
+    },
+    "driver_node_type_id": {
+      "defaultValue": "i3.2xlarge",
+      "hidden": true,
+      "type": "unlimited"
+    },
+    "enable_elastic_disk": {
+      "hidden": true,
+      "type": "fixed",
+      "value": true
+    },
+    "instance_pool_id": {
+      "hidden": true,
+      "type": "forbidden"
+    },
+    "node_type_id": {
+      "defaultValue": "i3.xlarge",
+      "hidden": false,
+      "type": "unlimited"
+    },
+    "num_workers": {
+      "hidden": true,
+      "type": "forbidden"
+    },
+    "runtime_engine": {
+      "defaultValue": "STANDARD",
+      "hidden": false,
+      "type": "unlimited"
+    },
+    "spark_conf.spark.databricks.cluster.profile": {
+      "hidden": true,
+      "type": "forbidden"
+    },
+    "spark_version": {
+      "defaultValue": "auto:latest-ml",
+      "type": "unlimited"
+    }
+  }
