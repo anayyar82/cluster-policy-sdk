@@ -3,10 +3,6 @@
     {
       "user_name": "Azure-Security-FSSO-MC-Databricks-Dev-WS-DAS-User",
       "permission_level": "CAN_USE"
-    }, 
-    {
-      "user_name": "ankur.nayyar@mastercard.com",
-      "permission_level": "CAN_USE"
     }
   ]
 }
