@@ -15,8 +15,7 @@
       "i3.xlarge",
       "i3.2xlarge",
       "i3.4xlarge",
-      "i3en.xlarge",
-      "g4dn.xlarge"
+      "i3en.xlarge"
     ],
     "defaultValue": "i3.xlarge"
   },
@@ -37,9 +36,7 @@
   "data_security_mode": {
     "type": "allowlist",
     "values": [
-      "SINGLE_USER",
-      "LEGACY_SINGLE_USER",
-      "LEGACY_SINGLE_USER_STANDARD"
+      "SINGLE_USER"
     ],
     "defaultValue": "SINGLE_USER",
     "hidden": true
@@ -68,12 +65,16 @@
   },
   "autotermination_minutes": {
     "type": "unlimited",
-    "defaultValue": 4320,
+    "defaultValue": 30,
     "isOptional": true
   },
   "enable_elastic_disk": {
     "type": "fixed",
     "value": true,
     "hidden": true
-  }
+  },
+  "custom_tags.team": {
+    "type": "fixed",
+    "value": "DE-DAS"
+  },
 }
