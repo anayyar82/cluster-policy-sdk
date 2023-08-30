@@ -6,11 +6,3 @@
     }
   ]
 }
-{
-  "access_control_list": [
-    {
-      "user_name": "ankur.nayyar@mastercard.com",
-      "permission_level": "CAN_USE"
-    }
-  ]
-}
