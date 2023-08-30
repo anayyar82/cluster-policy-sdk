@@ -71,7 +71,6 @@
   },
  "custom_tags.COST_CENTER": {
   "type": "fixed",
-  "value": "DAS",
-  "hidden": true
-  }
+  "value": "DAS"
+ }
 }
