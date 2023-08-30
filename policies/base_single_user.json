@@ -1,5 +1,10 @@
 {
-  "aws_attributes.spot_bid_price_percent": {
+  "aws_attributes.instance_profile_arn": {
+    "type": "allowlist",
+    "values": [
+      "arn:aws:iam::416758292897:instance-profile/DE-Prod-Databricks-InstanceProfile-Role"    ]
+  },
+    "aws_attributes.spot_bid_price_percent": {
     "type": "fixed",
     "value": 100,
     "hidden": true
