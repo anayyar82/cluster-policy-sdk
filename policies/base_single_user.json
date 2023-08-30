@@ -1,33 +1,79 @@
 {
-  "dbus_per_hour": {
+  "aws_attributes.spot_bid_price_percent": {
     "type": "fixed",
-    "value": 50
+    "value": 100,
+    "hidden": true
   },
-  "spark_version": {
+  "aws_attributes.availability": {
+    "type": "fixed",
+    "value": "ON_DEMAND",
+    "hidden": true
+  },
+  "node_type_id": {
+    "type": "allowlist",
+    "values": [
+      "i3.xlarge",
+      "i3.2xlarge",
+      "i3.4xlarge",
+      "i3en.xlarge",
+      "g4dn.xlarge"
+    ],
+    "defaultValue": "i3.xlarge"
+  },
+ "spark_version": {
     "type": "regex",
     "pattern": "11\\.3\\.x-scala.*"
   },
-  "node_type_id": {
-    "type": "regex",
-    "pattern": "[cr][6-7][gd]*.[2-4]{0,1}xlarge"
-  },
-  "driver_node_type_id": {
-    "type": "regex",
-    "pattern": "[cr][6-7][gd]*.[2-4]{0,1}xlarge"
-  },
-  "autoscale.min_workers": {
+  "runtime_engine": {
     "type": "fixed",
-    "value": 1,
+    "value": "STANDARD",
     "hidden": true
   },
-  "autoscale.max_workers": {
+  "num_workers": {
     "type": "fixed",
-    "value": 2,
+    "value": 0,
+    "hidden": true
+  },
+  "data_security_mode": {
+    "type": "allowlist",
+    "values": [
+      "SINGLE_USER",
+      "LEGACY_SINGLE_USER",
+      "LEGACY_SINGLE_USER_STANDARD"
+    ],
+    "defaultValue": "SINGLE_USER",
+    "hidden": true
+  },
+  "driver_instance_pool_id": {
+    "type": "forbidden",
+    "hidden": true
+  },
+  "cluster_type": {
+    "type": "fixed",
+    "value": "all-purpose"
+  },
+  "aws_attributes.zone_id": {
+    "type": "unlimited",
+    "defaultValue": "auto",
+    "hidden": true
+  },
+  "instance_pool_id": {
+    "type": "forbidden",
+    "hidden": true
+  },
+  "spark_conf.spark.databricks.cluster.profile": {
+    "type": "fixed",
+    "value": "singleNode",
     "hidden": true
   },
   "autotermination_minutes": {
+    "type": "unlimited",
+    "defaultValue": 4320,
+    "isOptional": true
+  },
+  "enable_elastic_disk": {
     "type": "fixed",
-    "value": 30,
+    "value": true,
     "hidden": true
   }
 }
