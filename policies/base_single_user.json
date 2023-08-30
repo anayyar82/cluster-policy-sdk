@@ -54,10 +54,6 @@
     "defaultValue": "auto",
     "hidden": true
   },
-  "instance_pool_id": {
-    "type": "forbidden",
-    "hidden": true
-  },
   "spark_conf.spark.databricks.cluster.profile": {
     "type": "fixed",
     "value": "singleNode",
@@ -73,8 +69,9 @@
     "value": true,
     "hidden": true
   },
-  "custom_tags.team": {
-    "type": "fixed",
-    "value": "DE-DAS"
-  },
+ "custom_tags.COST_CENTER": {
+  "type": "fixed",
+  "value": "DAS",
+  "hidden": true
+  }
 }
