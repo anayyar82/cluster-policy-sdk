@@ -2,7 +2,8 @@
   "aws_attributes.instance_profile_arn": {
     "type": "allowlist",
     "values": [
-      "arn:aws:iam::416758292897:instance-profile/DE-Prod-Databricks-InstanceProfile-Role"    ]
+      "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz"    
+    ]
   },
     "aws_attributes.spot_bid_price_percent": {
     "type": "fixed",
