@@ -1,7 +1,15 @@
 {
   "access_control_list": [
     {
-      "user_name": "Azure-Security-FSSO-MC-Databricks-Dev-WS-DAS-User",
+      "user_name": "Azure-Security-FSSO-MC-Databricks-Dev-WS-DAS-User@mastercard.com",
+      "permission_level": "CAN_USE"
+    }
+  ]
+}
+{
+  "access_control_list": [
+    {
+      "user_name": "ankur.nayyar@mastercard.com",
       "permission_level": "CAN_USE"
     }
   ]
