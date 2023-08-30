@@ -78,34 +78,5 @@
  "custom_tags.COST_CENTER": {
   "type": "fixed",
   "value": "DAS"
- },
- "custom_tags.business unit": {
-  "defaultValue": "data engineering/payments/finance",
-  "type": "allowlist",
-  "values": [
-    "data engineering",
-    "MC",
-    "DAS",
-    "DEA"
-      ]
-    },
-    "custom_tags.map-migrated": {
-      "type": "fixed",
-      "value": "map-migration"
-    },
-    "custom_tags.project": {
-      "isOptional": false,
-      "type": "unlimited"
-    },
-    "custom_tags.team": {
-      "defaultValue": "Data Engineering/Machine Learning/Data Science/Operations/Partner Engineering",
-      "type": "allowlist",
-     "values": [
-        "Data Engineering",
-        "Machine Learning",
-        "Data Science",
-        "Operations",
-        "Partner Engineering"
-      ]
-    }
+ }
 }
