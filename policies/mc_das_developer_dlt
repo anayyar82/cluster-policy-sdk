@@ -62,6 +62,10 @@
         "Partner Engineering"
       ]
     },
+    "custom_tags.COST_CENTER": {
+      "type": "fixed",
+      "value": "CC8801"
+     }
     "data_security_mode": {
       "defaultValue": "NONE",
       "hidden": true,
