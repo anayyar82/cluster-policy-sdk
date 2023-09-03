@@ -8,9 +8,9 @@ on:
         type: choice
         required: true
         options:
-          - production
-          - test
           - development
+          - test
+          - production
       policy:
         description: Which policy file to deploy?
         type: string
@@ -72,5 +72,9 @@ jobs:
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
+          environment: ${{ inputs.environment }}
+          policy: ${{ inputs.policy }}
+          inherit_from: ${{ inputs.inherit_from }}
+          acl: ${{ inputs.acl }}
         run: |
           python deploy.py
