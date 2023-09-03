@@ -43,30 +43,16 @@
       "type": "fixed",
       "value": "dlt"
     },
-    "custom_tags.business unit": {
-      "defaultValue": "data engineering/MC-DAS",
-      "type": "allowlist",
-      "values": [
-        "data engineering",
-        "MC",
-        "DAS",
-        "DEA"
-      ]
-    },
     "custom_tags.cluster-type": {
       "type": "fixed",
       "value": "dlt"
-    },
-    "custom_tags.map-migrated": {
-      "type": "fixed",
-      "value": "mig5IYDAT5X7N"
     },
     "custom_tags.project": {
       "isOptional": false,
       "type": "unlimited"
     },
-    "custom_tags.team": {
-      "defaultValue": "Data Engineering/Machine Learning/Data Science/Operations/Partner Engineering",
+    "custom_tags.use-case": {
+      "defaultValue": "SpendingPulse, SBCA, CustomerDataLandingZone",
       "type": "allowlist",
       "values": [
         "Data Engineering",
