@@ -3,6 +3,10 @@
     {
       "group_name": "Azure-Security-FSSO-MC-Databricks-Dev-WS-DAS-User",
       "permission_level": "CAN_USE"
+    }, 
+    {
+      "group_name": "Azure-Security-FSSO-MC-Databricks-Dev-WS-Das-Admin",
+      "permission_level": "CAN_USE"
     }
   ]
 }
