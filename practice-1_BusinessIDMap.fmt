@@ -1,0 +1,7 @@
+14.0
+5
+1       SQLNCHAR            0       300     "\t\0"   1     BusinessID                                                           SQL_Latin1_General_CP1_CI_AS
+2       SQLNCHAR            0       14      "\t\0"   2     Shard                                                                ""
+3       SQLNCHAR            0       74      "\t\0"   3     PracticeID                                                           ""
+4       SQLNCHAR            0       10      "\t\0"   4     BusinessIDStatus                                                     ""
+5       SQLNCHAR            0       60      "\n\0"   5     Updated                                                              ""

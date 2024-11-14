@@ -1,0 +1,19 @@
+14.0
+17
+1       SQLNCHAR            0       74      "\t\0"   1     ID                                                                       ""
+2       SQLNCHAR            0       14      "\t\0"   2     Shard                                                                    ""
+3       SQLNCHAR            0       74      "\t\0"   3     EntityID                                                                 ""
+4       SQLNCHAR            0       14      "\t\0"   4     Type                                                                     ""
+5       SQLNCHAR            0       60      "\t\0"   5     Expires                                                                  ""
+6       SQLNCHAR            0       74      "\t\0"   6     ReceiverAccountID                                                        ""
+7       SQLNCHAR            0       300     "\t\0"   7     ReceiverEmail                                                            SQL_Latin1_General_CP1_CI_AS
+8       SQLNCHAR            0       74      "\t\0"   8     SenderAccountID                                                          ""
+9       SQLNCHAR            0       14      "\t\0"   9     Role                                                                     ""
+10      SQLNCHAR            0       14      "\t\0"   10    Status                                                                   ""
+11      SQLNCHAR            0       60      "\t\0"   11    Created                                                                  ""
+12      SQLNCHAR            0       100     "\t\0"   12    CreatedBy                                                                SQL_Latin1_General_CP1_CI_AS
+13      SQLNCHAR            0       60      "\t\0"   13    Updated                                                                  ""
+14      SQLNCHAR            0       100     "\t\0"   14    UpdatedBy                                                                SQL_Latin1_General_CP1_CI_AS
+15      SQLNCHAR            0       32      "\t\0"   15    V                                                                        ""
+16      SQLNCHAR            0       0       "\t\0"   16    D                                                                        SQL_Latin1_General_CP1_CI_AS
+17      SQLNCHAR            0       0       "\n\0"   17    P                                                                        SQL_Latin1_General_CP1_CI_AS
