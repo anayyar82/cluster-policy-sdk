@@ -8,6 +8,39 @@ schema = schema_of_json("""{"deviceType":40066,"info":{"percent":100,"scans":18}
 df_1 = df.withColumn("parsed_json", from_json(col('D'), schema))
 df_1.select('D','parsed_json').display()
 
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col, schema_of_json
+
+# Reading the table
+df = spark.read.table("`prod-adc-superiorlv-catalog-eu-west-1`.`lv-event`.`bronze_eventlog`")
+
+# Defining schema, ensuring special characters are correct
+json_schema = """
+{
+  "deviceType": 40066,
+  "info": {
+    "percent": 100,
+    "scans": 18
+  },
+  "uploader": {
+    "firstName": "Jens",
+    "id": "00c318d3-f467-e911-815d-0610e6e38cbd",
+    "lastName": "Böhme"
+  }
+}
+"""
+
+# Defining schema from JSON string
+schema = schema_of_json(json_schema)
+
+# Parsing the JSON from column 'D'
+df_1 = df.withColumn("parsed_json", from_json(col("D"), schema))
+
+# Select and display original and parsed columns
+df_1.select('D', 'parsed_json').display()
+
+
 {
     "autoscale.max_workers": {
       "defaultValue": 3,
