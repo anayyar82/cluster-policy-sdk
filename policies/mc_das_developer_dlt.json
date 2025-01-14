@@ -1,3 +1,13 @@
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col, schema_of_json
+ 
+df = spark.read.table("`prod-adc-superiorlv-catalog-eu-west-1`.`lv-event`.`bronze_eventlog`")
+ 
+schema = schema_of_json("""{"deviceType":40066,"info":{"percent":100,"scans":18},"uploader":{"firstName":"Jens","id":"00c318d3-f467-e911-815d-0610e6e38cbd","lastName":"B�hme"}}""")
+df_1 = df.withColumn("parsed_json", from_json(col('D'), schema))
+df_1.select('D','parsed_json').display()
+
 {
     "autoscale.max_workers": {
       "defaultValue": 3,
