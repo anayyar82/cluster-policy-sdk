@@ -1,3 +1,36 @@
+@dlt.view
+#@dlt.table(temporary=temporary)
+def current_filtered():
+    #Formating Time
+    time_df = spark.sql(f"select  if  (instr(right(userrecorded,6), '+') > 0 or instr(right(userrecorded,6), '-') > 0 , substr(userrecorded,0,length(userRecorded)-6) , userRecorded) as userRecorded_modified, * from LIVE.CURRENT_GLUCOSE_READING_BRONZE")
+
+    time_df = time_df.drop("userrecorded") \
+                    .withColumnRenamed("userrecorded_modified", "userrecorded") \
+                    .withColumn('userrecorded', to_timestamp(col('userRecorded'))) \
+                    .withColumn('factoryrecorded', to_timestamp(col('factoryrecorded')))
+    return time_df
+
+@dlt.table(
+  name=current_table_name + "SILVER",
+  comment="silver current",
+  temporary=temporary)
+def current_silver():
+    new_df = spark.sql("SELECT * from LIVE.current_filtered;")
+    new_df = new_df \
+                        .withColumn("factoryrechour", hour(new_df.factoryrecorded)) \
+                        .withColumn("userrechour", hour(new_df.userrecorded)) \
+                        .withColumn("uploadSequence" ,col('uploadSequence').cast('long'))\
+                        .withColumn("factoryrecorded" ,col('factoryrecorded').cast('timestamp'))
+    new_df = new_df.withColumnRenamed("deviceUUID", "reader_uuid") \
+                                        .withColumnRenamed("deviceNationality", "country") \
+                                        .withColumnRenamed("uploadSequence", "upload_id") \
+                                        .withColumnRenamed("firmwareVersion", "firmware")      
+    new_df.orderBy(new_df['reader_uuid'].asc(), new_df['factoryrecorded'].asc())
+    
+    return new_df
+
+
+
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col, schema_of_json
