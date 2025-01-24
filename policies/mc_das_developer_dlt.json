@@ -1,204 +1,172 @@
-@dlt.view()
-def generic_dedup():
-    # Remove ORDER BY clause and repartition based on 'deviceUUID'
-    df = spark.read.table("LIVE.generic_combined").repartition("deviceUUID")
-    
-    # Apply deduplication based on the subset of columns
-    deduped_df = df.dropDuplicates(subset=['deviceUUID', 'factoryrecorded', 'type'])
-    
-    return deduped_df
+# Databricks notebook source
+from pyspark.sql.functions import lit, col
 
+import dlt
+import bronze_schema
+import gold_schema
 
+from variables_orig import *
+from data_quality import *
+from data_quality_gold import *
 
-@dlt.view
-#@dlt.table(temporary=temporary)
-def current_filtered():
-    #Formating Time
-    time_df = spark.sql(f"select  if  (instr(right(userrecorded,6), '+') > 0 or instr(right(userrecorded,6), '-') > 0 , substr(userrecorded,0,length(userRecorded)-6) , userRecorded) as userRecorded_modified, * from LIVE.CURRENT_GLUCOSE_READING_BRONZE")
+# COMMAND ----------
 
-    time_df = time_df.drop("userrecorded") \
-                    .withColumnRenamed("userrecorded_modified", "userrecorded") \
-                    .withColumn('userrecorded', to_timestamp(col('userRecorded'))) \
-                    .withColumn('factoryrecorded', to_timestamp(col('factoryrecorded')))
-    return time_df
+# MAGIC %md # Bronze Table
+
+# COMMAND ----------
+
+# MAGIC %md ### Blacklisted Accounts
+
+# COMMAND ----------
+
+@dlt.table(temporary=temporary)
+def bronze_blacklist_account():
+    return spark.read.table(f"`{marshall_catalog}`.`{misc_schema}`.`bl-accounts`")
+
+# COMMAND ----------
+
+# MAGIC %md ### Blacklist Gold
+
+# COMMAND ----------
 
 @dlt.table(
-  name=current_table_name + "SILVER",
-  comment="silver current",
-  temporary=temporary)
-def current_silver():
-    new_df = spark.sql("SELECT * from LIVE.current_filtered;")
-    new_df = new_df \
-                        .withColumn("factoryrechour", hour(new_df.factoryrecorded)) \
-                        .withColumn("userrechour", hour(new_df.userrecorded)) \
-                        .withColumn("uploadSequence" ,col('uploadSequence').cast('long'))\
-                        .withColumn("factoryrecorded" ,col('factoryrecorded').cast('timestamp'))
-    new_df = new_df.withColumnRenamed("deviceUUID", "reader_uuid") \
-                                        .withColumnRenamed("deviceNationality", "country") \
-                                        .withColumnRenamed("uploadSequence", "upload_id") \
-                                        .withColumnRenamed("firmwareVersion", "firmware")      
-    new_df.orderBy(new_df['reader_uuid'].asc(), new_df['factoryrecorded'].asc())
+  name=bl_accounts_table_name + "GOLD",
+  comment="blacklist gold table",
+  schema=gold_schema.account_blacklist_schema
+)
+def gold_blacklist_account():
+    return spark.sql("""
+        SELECT 
+            accountid AS account_id,
+            reason,
+            CAST(date_added AS DATE)
+        FROM live.bronze_blacklist_account
+    """)
+
+# COMMAND ----------
+
+# MAGIC %md ### Account Details
+
+# COMMAND ----------
+
+@dlt.table(temporary=temporary)
+def account_details_input():
+    return spark.read.table(f"`{dmz_catalog}`.`{input_schema}`.`account_details`")
+
+@dlt.table(temporary=temporary)
+def account_details_threshold():
+    return spark.sql("""
+        SELECT accountid 
+        FROM live.account_details_input 
+        WHERE devicenationality IN (
+            SELECT devicenationality 
+            FROM live.account_details_input 
+            GROUP BY devicenationality 
+            HAVING COUNT(devicenationality) < 11
+        )
+    """)
+
+@dlt.table(temporary=temporary)
+def account_details_without_blacklisted_users():
+    return spark.sql("""
+        SELECT * 
+        FROM live.account_details_input 
+        WHERE accountid NOT IN (SELECT accountid FROM live.bronze_blacklist_account)
+    """)
+
+@dlt.table(temporary=temporary)
+def accounts_greater_than_threshold():
+    return spark.sql("""
+        SELECT * 
+        FROM live.account_details_without_blacklisted_users
+        WHERE accountid NOT IN (SELECT accountid FROM live.account_details_threshold)
+    """)
+
+@dlt.table(
+    name="ACCOUNT_GOLD",
+    schema=gold_schema.account_schema
+)
+def account_details_gold():
+    return spark.sql("""
+        SELECT 
+            accountid AS account_id,
+            devicenationality AS reader_nationality,
+            CAST(agerangelower AS INTEGER) AS age_range_lower,
+            CAST(agerangeupper AS INTEGER) AS age_range_upper
+        FROM live.accounts_greater_than_threshold
+        INNER JOIN live.whitelisted_countries
+        ON live.accounts_greater_than_threshold.devicenationality = live.whitelisted_countries.code
+    """)
+
+# COMMAND ----------
+
+# MAGIC %md ### Account Devices
+
+# COMMAND ----------
+
+@dlt.table(temporary=temporary)
+def account_input():
+    return (spark.read
+            .table(f"`{dmz_catalog}`.`{input_schema}`.`account_devices`")
+            .where(col("uploaddate").between(start_date, end_date))
+            .withColumn("date_", lit(snapshot_date)))
+
+@dlt.table(temporary=temporary)
+def account_history():
+    query = f"SHOW TABLES IN `{history_catalog}`.`{history_schema}` LIKE 'account_devices'"
+    result = spark.sql(query)
     
-    return new_df
+    # Instead of collecting, check if the table exists
+    if result.count() > 0:
+        return spark.read.table(f"`{history_catalog}`.`{history_schema}`.`account_devices`")
+    else:
+        return spark.createDataFrame([], schema=bronze_schema.account_devices_schema)
 
+@dlt.view()
+def account_combined():
+    account_input_df = spark.read.table("LIVE.account_input")
+    account_history_df = spark.read.table("LIVE.account_history")
+    
+    # Repartition the data to avoid shuffle during the UNION operation
+    combined_df = account_input_df.union(account_history_df)
+    return combined_df.dropDuplicates(subset=['accountid', 'deviceuuid']).repartition("accountid")
 
+@dlt.table(
+    name=account_devices_table_name + "GOLD",
+    comment="final account devices",
+    schema=gold_schema.account_devices_schema
+)
+def account_final():
+    return spark.sql("""
+        SELECT 
+            accountid AS account_id,
+            deviceUUID AS reader_uuid,
+            CAST(date_ AS DATE) AS first_processed_date  
+        FROM LIVE.account_combined 
+        WHERE deviceUUID IN (
+            SELECT DISTINCT(reader_uuid) 
+            FROM LIVE.DEVICE_SETTINGS_SILVER
+        )
+    """)
 
-
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, schema_of_json
- 
-df = spark.read.table("`prod-adc-superiorlv-catalog-eu-west-1`.`lv-event`.`bronze_eventlog`")
- 
-schema = schema_of_json("""{"deviceType":40066,"info":{"percent":100,"scans":18},"uploader":{"firstName":"Jens","id":"00c318d3-f467-e911-815d-0610e6e38cbd","lastName":"B�hme"}}""")
-df_1 = df.withColumn("parsed_json", from_json(col('D'), schema))
-df_1.select('D','parsed_json').display()
-
-
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, schema_of_json
-
-# Reading the table
-df = spark.read.table("`prod-adc-superiorlv-catalog-eu-west-1`.`lv-event`.`bronze_eventlog`")
-
-# Defining schema, ensuring special characters are correct
-json_schema = """
-{
-  "deviceType": 40066,
-  "info": {
-    "percent": 100,
-    "scans": 18
-  },
-  "uploader": {
-    "firstName": "Jens",
-    "id": "00c318d3-f467-e911-815d-0610e6e38cbd",
-    "lastName": "Böhme"
-  }
-}
-"""
-
-# Defining schema from JSON string
-schema = schema_of_json(json_schema)
-
-# Parsing the JSON from column 'D'
-df_1 = df.withColumn("parsed_json", from_json(col("D"), schema))
-
-# Select and display original and parsed columns
-df_1.select('D', 'parsed_json').display()
-
-
-{
-    "autoscale.max_workers": {
-      "defaultValue": 3,
-      "maxValue": 10,
-      "type": "range"
-    },
-    "autoscale.min_workers": {
-      "hidden": true,
-      "type": "fixed",
-      "value": 1
-    },
-    "autotermination_minutes": {
-      "hidden": true,
-      "type": "fixed",
-      "value": 0
-    },
-    "aws_attributes.availability": {
-      "hidden": true,
-      "type": "fixed",
-      "value": "SPOT_WITH_FALLBACK"
-    },
-    "aws_attributes.first_on_demand": {
-      "defaultValue": 100001,
-      "minValue": 1,
-      "type": "range"
-    },
-    "aws_attributes.instance_profile_arn": {
-      "hidden": false,
-      "type": "fixed",
-      "value": "arn:aws:iam::188683556025:instance-profile/SC-188683556025-pp-odoyentbc6yei-InstanceProfile-OH0rrAA6Cdlz"
-    },
-    "aws_attributes.spot_bid_price_percent": {
-      "hidden": true,
-      "type": "fixed",
-      "value": 100
-    },
-    "aws_attributes.zone_id": {
-      "defaultValue": "auto",
-      "hidden": true,
-      "type": "unlimited"
-    },
-    "cluster_type": {
-      "type": "fixed",
-      "value": "dlt"
-    },
-    "custom_tags.cluster-type": {
-      "type": "fixed",
-      "value": "dlt"
-    },
-    "custom_tags.project": {
-      "isOptional": false,
-      "type": "unlimited"
-    },
-    "custom_tags.use-case": {
-      "defaultValue": "SpendingPulse, SBCA, CustomerDataLandingZone",
-      "type": "allowlist",
-      "values": [
-        "Data Engineering",
-        "Machine Learning",
-        "Data Science",
-        "Operations",
-        "Partner Engineering"
-      ]
-    },
-    "custom_tags.COST_CENTER": {
-      "type": "fixed",
-      "value": "CC8801"
-     },
-    "data_security_mode": {
-      "defaultValue": "NONE",
-      "hidden": true,
-      "type": "unlimited"
-    },
-    "dbus_per_hour": {
-      "maxValue": 50,
-      "type": "range"
-    },
-    "driver_instance_pool_id": {
-      "hidden": true,
-      "type": "forbidden"
-    },
-    "driver_node_type_id": {
-      "hidden": true,
-      "type": "unlimited"
-    },
-    "enable_elastic_disk": {
-      "hidden": true,
-      "type": "fixed",
-      "value": true
-    },
-    "instance_pool_id": {
-      "hidden": true,
-      "type": "forbidden"
-    },
-    "node_type_id": {
-      "hidden": true,
-      "type": "unlimited"
-    },
-    "num_workers": {
-      "hidden": true,
-      "type": "forbidden"
-    },
-    "runtime_engine": {
-      "hidden": true,
-      "type": "fixed",
-      "value": "STANDARD"
-    },
-    "spark_conf.spark.databricks.cluster.profile": {
-      "hidden": true,
-      "type": "forbidden"
-    },
-    "spark_version": {
-      "defaultValue": "auto:latest-lts",
-      "type": "unlimited"
-    }
-  }
+@dlt.table(
+    name=account_devices_table_name + "BRONZE_HISTORY",
+    comment="bronze account devices",
+    temporary=temporary
+)
+def account_devices_update_history():
+    df = spark.sql(f"""
+        SELECT 
+            ac.account_id AS accountid, 
+            ac.reader_uuid AS deviceuuid, 
+            ac.first_processed_date AS date_ 
+        FROM live.{account_devices_table_name}GOLD ac 
+        WHERE ac.first_processed_date = '{snapshot_date}'
+    """)
+    
+    df.write.mode("append").format("delta")\
+        .option('nullValue', None)\
+        .option("mergeSchema", "true")\
+        .saveAsTable(f"`{marshall_catalog}`.`{history_schema}`.`account_devices`")
+    
+    return df
