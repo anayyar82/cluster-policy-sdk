@@ -1,17 +1,66 @@
-@dlt.view()
-def insulin_format_user_time_stamp():
-    # Read the bronze table directly
-    df = dlt.read("INSULIN_BRONZE")
+import dlt
+from pyspark.sql.functions import *
 
-    # Modify userRecorded based on the condition
-    df = df.withColumn(
-        "userRecorded",
-        to_timestamp(
-            when((instr(col("userRecorded").substr(-6, 1), '+') > 0) | (instr(col("userRecorded").substr(-6, 1), '-') > 0),
-                 col("userRecorded").substr(0, length(col("userRecorded")) - 6))
-            .otherwise(col("userRecorded"))
-        )
+@dlt.table(
+    name=f"{insulin_table_name}GOLD",  # Formatted string for table name
+    comment="Gold insulin table",
+    schema=gold_schema.insulin_schema  # Use provided schema
+)
+def insulin_fsl3():
+    # Reading source tables using DLT
+    insulin_silver_df = dlt.read("INSULIN_SILVER")
+    device_settings_df = dlt.read("DEVICE_SETTINGS_SILVER")
+    sensor_silver_df = dlt.read("SENSOR_SILVER")
+    useday_df = dlt.read("useday")
+    
+    # Join the tables using DataFrame API
+    results_insulin_df = insulin_silver_df.join(
+        device_settings_df,
+        insulin_silver_df.reader_uuid == device_settings_df.reader_uuid,
+        "inner"
+    ).join(
+        sensor_silver_df,
+        (device_settings_df.DEVICE_ID == sensor_silver_df.DEVICE_ID) &
+        (unix_timestamp(insulin_silver_df.factoryRecorded).between(
+            unix_timestamp(sensor_silver_df.first_sched_factory_reading),
+            unix_timestamp(sensor_silver_df.last_sched_factory_reading)
+        )),
+        "left_outer"
+    ).join(
+        useday_df,
+        (insulin_silver_df.reader_uuid == useday_df.reader_uuid) &
+        (to_date(insulin_silver_df.factoryRecorded) == to_date(useday_df.factoryRecorded)),
+        "left_outer"
     )
 
-    # Convert factoryrecorded to timestamp and return the final DataFrame
-    return df.withColumn("factoryrecorded", to_timestamp(col("factoryrecorded")))
+    # Apply transformations and select required columns
+    results_insulin_df = results_insulin_df.select(
+        device_settings_df.device_id,
+        sensor_silver_df.SENSOR_ID, 
+        sensor_silver_df.SENSOR_NO, 
+        sensor_silver_df.SENSOR_UID,
+        col("i.upload_id").cast("BIGINT"), 
+        insulin_silver_df.type.alias("INSULIN_TYPE"), 
+        insulin_silver_df.units.alias("VALUE_UNITS"), 
+        col("i.userRecorded").cast("TIMESTAMP").alias("USER_RECORDED"), 
+        col("i.userRecHour").cast("SMALLINT").alias("USER_REC_HOUR"),
+        col("i.factoryRecorded").cast("TIMESTAMP").alias("FACTORY_RECORDED"), 
+        col("i.FactoryRecHour").cast("SMALLINT").alias("FACTORY_REC_HOUR"),
+        (floor((unix_timestamp(insulin_silver_df.factoryRecorded) / 60 - unix_timestamp(sensor_silver_df.first_sched_factory_reading) / 60) / 1440) + 1).cast("int").alias("wear_day"),
+        (datediff(to_date(insulin_silver_df.factoryRecorded), to_date(sensor_silver_df.first_sched_factory_reading)) + 1).alias("CALENDAR_DAY"),
+        useday_df.use_day.alias("usage_day"),
+        datediff(to_date(insulin_silver_df.factoryRecorded), to_date(device_settings_df.first_sched_factory_reading)).alias("OWNERSHIP_DAY"),
+        insulin_silver_df.formatted_insulinOnboardInUnits.alias("INSULIN_ON_BOARD_IN_UNITS"), 
+        insulin_silver_df.formatted_userOverrideInUnits.alias("USER_OVERRIDE_AMOUNT_IN_UNITS"), 
+        insulin_silver_df.formatted_correctionAmountInUnits.alias("CORRECTION_AMOUNT_IN_UNITS"), 
+        insulin_silver_df.formatted_mealAmountInUnits.alias("MEAL_AMOUNT_IN_UNITS"), 
+        insulin_silver_df.reader_uuid, 
+        insulin_silver_df.firmwareversion.alias("firmware_version"),
+        insulin_silver_df.country,
+        col("i.date_").cast("DATE").alias("first_processed_date")
+    )
+
+    # Add a unique ID column
+    results_insulin_df = results_insulin_df.withColumn("insulin_id", monotonically_increasing_id())
+
+    return results_insulin_df
