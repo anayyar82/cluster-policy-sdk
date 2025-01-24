@@ -1,3 +1,15 @@
+@dlt.view()
+def generic_dedup():
+    # Remove ORDER BY clause and repartition based on 'deviceUUID'
+    df = spark.read.table("LIVE.generic_combined").repartition("deviceUUID")
+    
+    # Apply deduplication based on the subset of columns
+    deduped_df = df.dropDuplicates(subset=['deviceUUID', 'factoryrecorded', 'type'])
+    
+    return deduped_df
+
+
+
 @dlt.view
 #@dlt.table(temporary=temporary)
 def current_filtered():
