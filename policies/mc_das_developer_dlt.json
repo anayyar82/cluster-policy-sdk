@@ -1,231 +1,114 @@
-# Import necessary libraries
-from pyspark.sql.functions import hour, to_timestamp, col, lit, expr, monotonically_increasing_id
+# Optimized Code
+
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 import dlt
 import bronze_schema
 import gold_schema
-
 from variables_orig import *
-from data_quality_gold import *
 from data_quality import *
+from delta.tables import *
 
-# COMMAND ----------
-# MAGIC %md # Bronze Table
-
-# COMMAND ----------
-# Creating the current input table from the source
+# Bronze Table Optimization
 @dlt.table(temporary=temporary)
-@dlt.expect_all_or_drop(unscheduled_input_rules)
-def current_input():
-    return (
-        spark.read.table(f"`{dmz_catalog}`.`{input_schema}`.`current`")
-        .where(col("uploaddate").between(start_date, end_date))
-        .withColumn("date_", lit(snapshot_date))
-    )
+@dlt.expect_all_or_drop(insulin_input_rules)
+def insulin_input():
+    return (spark.read.table(f"`{dmz_catalog}`.`{input_schema}`.`{insulin_table_name[:-1]}`")
+            .filter(F.col("uploaddate").between(start_date, end_date))
+            .withColumn("date_", F.lit(snapshot_date)))
 
-# COMMAND ----------
-# Load historical data from the history table if it exists
 @dlt.table(temporary=temporary)
-def current_history():
-    query = f"SHOW TABLES IN `{history_catalog}`.`{history_schema}` LIKE 'current'"
-    result = spark.sql(query).collect()
+def insulin_history():
+    result = spark.sql(f"SHOW TABLES IN `{history_catalog}`.`{history_schema}` LIKE '{insulin_table_name[:-1]}'").collect()
     if result:
-        return spark.read.table(f"`{history_catalog}`.`{history_schema}`.`current`")
+        return spark.read.table(f'`{history_catalog}`.`{history_schema}`.`{insulin_table_name[:-1]}`')
     else:
-        return spark.createDataFrame([], schema=bronze_schema.current_schema)
+        return spark.createDataFrame([], schema=bronze_schema.insulin_schema)
 
-# COMMAND ----------
-# Combine current and historical data
-@dlt.view
-def current_combined():
-    return spark.sql("""
-        SELECT * FROM LIVE.current_input
-        UNION ALL
-        SELECT * FROM LIVE.current_history
-    """)
+@dlt.view()
+def insulin_combined():
+    return spark.sql("SELECT * from LIVE.insulin_input UNION ALL SELECT * from LIVE.insulin_history")
 
-# COMMAND ----------
-# Deduplicate combined data
-@dlt.view
-def current_dedup():
-    return (
-        spark.sql("""
-            SELECT * 
-            FROM LIVE.current_combined
-            ORDER BY deviceuuid ASC, factoryRecorded ASC, uploadsequence ASC, date_ ASC
-        """)
-        .dropDuplicates(subset=['deviceUUID', 'factoryrecorded'])
-    )
+@dlt.view()
+def insulin_dedup():
+    window_spec = Window.partitionBy('deviceUUID', 'factoryrecorded', 'type').orderBy(F.asc("deviceuuid"), F.asc("factoryrecorded"))
+    return (spark.sql("SELECT * from LIVE.insulin_combined")
+            .withColumn("row_num", F.row_number().over(window_spec))
+            .filter(F.col("row_num") == 1)
+            .drop("row_num"))
 
-# COMMAND ----------
-# Exclude blacklisted accounts
-@dlt.view
-def current_blacklist():
+@dlt.view(name=insulin_table_name + "BRONZE")
+def insulin_threshold():
     return spark.sql("""
         SELECT a.* 
-        FROM LIVE.current_dedup AS a 
-        LEFT JOIN LIVE.bronze_blacklist_account AS b 
-        ON a.accountid = b.accountid 
-        WHERE b.accountId IS NULL
+        FROM live.insulin_dedup a 
+        WHERE a.accountid IN (SELECT accountid FROM live.accounts_greater_than_threshold WHERE accountid IS NOT NULL)
     """)
 
-# COMMAND ----------
-# Filter accounts by threshold
-@dlt.view(
-    name=current_table_name + "BRONZE"
-)
-def current_threshold():
-    return spark.sql("""
-        SELECT a.* 
-        FROM LIVE.current_blacklist AS a 
-        WHERE a.accountid IN (
-            SELECT accountid 
-            FROM LIVE.accounts_greater_than_threshold 
-            WHERE accountid IS NOT NULL
-        )
-    """)
-
-# COMMAND ----------
-# Update history with the latest records
-@dlt.table(
-    name=current_table_name + "BRONZE_HISTORY",
-    comment="Bronze history of current data",
-    temporary=temporary
-)
-def current_update_history():
-    df = spark.sql(f"""
-        SELECT * 
-        FROM LIVE.{current_table_name}BRONZE 
-        WHERE date_ = '{snapshot_date}'
-    """)
-    df.write.mode("append").format("delta").option('nullValue', None).saveAsTable(
-        f"`{marshall_catalog}`.`{history_schema}`.`current`"
-    )
+@dlt.table(name=insulin_table_name + "BRONZE_HISTORY", temporary=temporary)
+def insulin_update_history():
+    df = spark.sql(f"SELECT * FROM live.{insulin_table_name}BRONZE WHERE date_ = '{snapshot_date}'")
+    df.write.mode("append").format("delta").saveAsTable(f"`{marshall_catalog}`.`{history_schema}`.`{insulin_table_name[:-1]}`")
     return df
 
-# COMMAND ----------
-# MAGIC %md # Silver Table
-
-# COMMAND ----------
-# Format time columns and filter records
-@dlt.view
-def current_filtered():
-    time_df = spark.sql(f"""
-        SELECT 
-            IF(INSTR(RIGHT(userrecorded,6), '+') > 0 OR INSTR(RIGHT(userrecorded,6), '-') > 0, 
-                SUBSTR(userrecorded, 0, LENGTH(userrecorded) - 6), userrecorded) AS userRecorded_modified, 
-            * 
-        FROM LIVE.CURRENT_GLUCOSE_READING_BRONZE
-    """)
-    return (
-        time_df.drop("userrecorded")
-        .withColumnRenamed("userRecorded_modified", "userrecorded")
-        .withColumn("userrecorded", to_timestamp(col("userrecorded")))
-        .withColumn("factoryrecorded", to_timestamp(col("factoryrecorded")))
-    )
-
-# COMMAND ----------
-# Create silver table with necessary transformations
-@dlt.table(
-    name=current_table_name + "SILVER",
-    comment="Silver table for current data",
-    temporary=temporary
-)
-def current_silver():
-    new_df = spark.sql("SELECT * FROM LIVE.current_filtered")
-    new_df = (
-        new_df.withColumn("factoryrechour", hour(new_df.factoryrecorded))
-        .withColumn("userrechour", hour(new_df.userrecorded))
-        .withColumn("uploadSequence", col("uploadSequence").cast("long"))
-        .withColumn("factoryrecorded", col("factoryrecorded").cast("timestamp"))
-        .withColumnRenamed("deviceUUID", "reader_uuid")
-        .withColumnRenamed("deviceNationality", "country")
-        .withColumnRenamed("uploadSequence", "upload_id")
-        .withColumnRenamed("firmwareVersion", "firmware")
-    )
-    return new_df.orderBy("reader_uuid", "factoryrecorded")
-
-# COMMAND ----------
-# MAGIC %md # Gold Table
-
-# COMMAND ----------
-# Prepare the gold table by extracting required columns and computing flags
-@dlt.table(temporary=temporary)
-def current_prepared():
-    results_current_df = spark.sql("""
-        SELECT
-            device.device_id,
-            sensor.sensor_no,
-            sensor.sensor_id,
-            sensor.sensor_uid,
-            current_glucose.upload_id,
-            CASE 
-                WHEN (INT((INT(UNIX_TIMESTAMP(current_glucose.factoryRecorded) / 60) - INT(UNIX_TIMESTAMP(sensor.first_sched_factory_reading) / 60)) / 1440) + 1) > 14 
-                THEN 1 ELSE 0 
-            END AS irregular_reading,
-            ROUND(current_glucose.mgdl, 0) AS value_mgdl,
-            current_glucose.userrecorded,
-            current_glucose.userRecHour AS user_rec_hour,
-            current_glucose.factoryRecorded AS factory_recorded,
-            current_glucose.factoryRecHour AS factory_rec_hour,
-            device.reader_uuid,
-            device.firmware AS firmware_version,
-            sensor.first_sched_factory_reading,
-            sensor.last_sched_factory_reading,
-            current_glucose.highoutofrange AS high_out_of_range, 
-            current_glucose.lowoutofrange AS low_out_of_range,
-            current_glucose.viewed AS is_viewed,
-            current_glucose.actionable AS is_actionable,
-            current_glucose.streaming AS is_streaming,
-            current_glucose.trendarrow AS trend_arrow,
-            CAST(current_glucose.date_ AS date) AS first_processed_date
-        FROM 
-            LIVE.CURRENT_GLUCOSE_READING_SILVER AS current_glucose 
-        INNER JOIN LIVE.DEVICE_SETTINGS_SILVER AS device 
-            ON current_glucose.reader_uuid = device.reader_uuid
-        INNER JOIN LIVE.SENSOR_SILVER AS sensor 
-            ON device.device_id = sensor.device_id 
-            AND UNIX_TIMESTAMP(current_glucose.factoryRecorded) BETWEEN 
-                UNIX_TIMESTAMP(sensor.first_sched_factory_reading) 
-                AND UNIX_TIMESTAMP(sensor.last_sched_factory_reading)
-        ORDER BY device.reader_uuid, sensor.sensor_no, current_glucose.factoryRecorded
-    """)
-    return results_current_df.withColumn("current_glucose_id", monotonically_increasing_id())
-
-# COMMAND ----------
-# Join alarms to create the final gold table
+# Silver Table Optimization
 @dlt.view()
-def ondemand_alarms():
-    return spark.sql("""
-        SELECT 
-            factoryrecorded,
-            userrecorded,
-            reader_uuid,
-            MAX(CASE WHEN "type" = 'low' THEN 1 ELSE 0 END) AS ondemand_low_alarm,
-            MAX(CASE WHEN "type" = 'high' THEN 1 ELSE 0 END) AS ondemand_high_alarm,
-            MAX(CASE WHEN "type" = 'projectedlow' THEN 1 ELSE 0 END) AS ondemand_projected_low_alarm,
-            MAX(CASE WHEN "type" = 'projectedhigh' THEN 1 ELSE 0 END) AS ondemand_projected_high_alarm
-        FROM 
-            (SELECT factoryrecorded, userrecorded, reader_uuid, "type" FROM LIVE.GENERIC_SILVER WHERE "type" IN ('low', 'high', 'projectedlow', 'projectedhigh')) AS alarms
-        GROUP BY factoryrecorded, userrecorded, reader_uuid
+def insulin_transformed():
+    insulin_input_transformed_df = spark.sql("""
+        SELECT
+            CAST(REPLACE(insulinonboardinunits, ',', '.') AS FLOAT) AS formatted_insulinOnboardInUnits,
+            CAST(REPLACE(correctionamountinunits, ',', '.') AS FLOAT) AS formatted_correctionAmountInUnits,
+            CAST(REPLACE(mealamountinunits, ',', '.') AS FLOAT) AS formatted_mealAmountInUnits,
+            CAST(REPLACE(useroverrideinunits, ',', '.') AS FLOAT) AS formatted_userOverrideInUnits,
+            *
+        FROM live.insulin_format_user_time_stamp
     """)
+    return insulin_input_transformed_df.drop("insulinonboardinunits", "correctionamountsinunits", "mealamountinunits", "useroverrideinunits")
 
-# Final Gold table creation
-@dlt.table(
-    name=current_table_name + "GOLD",
-    comment="Gold table for current data",
-    schema=gold_schema.current_schema
-)
-def current_gold(): 
-    return spark.sql("""
+@dlt.table(name=insulin_table_name + "SILVER", temporary=temporary)
+def insulin_enriched():
+    return (dlt.read('insulin_transformed')
+            .withColumn("factoryrechour", F.hour("factoryrecorded"))
+            .withColumn("userrechour", F.hour("userRecorded"))
+            .withColumn("upload_id", F.col('uploadSequence').cast('long'))
+            .withColumn("units", F.col('units').cast('float'))
+            .withColumnRenamed("deviceUUID", "reader_uuid")
+            .withColumnRenamed("deviceNationality", "country")
+            .orderBy(F.asc("reader_uuid"), F.asc("factoryrecorded")))
+
+# Gold Table Optimization
+@dlt.table(name=insulin_table_name + "GOLD", schema=gold_schema.insulin_schema)
+def insulin_fsl3():
+    results_insulin_df = spark.sql("""
         SELECT 
-            current_glucose.*, 
-            CAST(ondemand_low_alarm AS BOOLEAN),
-            CAST(ondemand_high_alarm AS BOOLEAN),
-            CAST(ondemand_projected_low_alarm AS BOOLEAN),
-            CAST(ondemand_projected_high_alarm AS BOOLEAN)
-        FROM 
-            LIVE.current_prepared AS current_glucose
-        LEFT JOIN LIVE.ondemand_alarms 
-            ON current_glucose.reader_uuid = ondemand_alarms.reader_uuid 
-            AND current_glucose.factory_recorded = ondemand_alarms.factoryrecorded
+            d.device_id,
+            s.SENSOR_ID, 
+            s.SENSOR_NO, 
+            s.SENSOR_UID,
+            CAST(i.upload_id AS BIGINT),
+            i.type AS INSULIN_TYPE, 
+            i.units AS VALUE_UNITS, 
+            CAST(i.userRecorded AS TIMESTAMP) AS USER_RECORDED, 
+            CAST(i.userRecHour AS SMALLINT) AS USER_REC_HOUR,
+            CAST(i.factoryRecorded AS TIMESTAMP) AS FACTORY_RECORDED, 
+            CAST(i.FactoryRecHour AS SMALLINT) AS FACTORY_REC_HOUR,
+            CAST(((int(unix_timestamp(i.factoryRecorded)/60) - int(unix_timestamp(s.first_sched_factory_reading)/60))/1440) + 1 AS int) AS wear_day,
+            datediff(to_date(i.factoryRecorded), to_date(s.first_sched_factory_reading)) + 1 AS CALENDAR_DAY, 
+            useday.use_day AS usage_day,
+            datediff(to_date(i.factoryRecorded), to_date(d.first_sched_factory_reading)) AS OWNERSHIP_DAY,
+            i.formatted_insulinOnboardInUnits AS INSULIN_ON_BOARD_IN_UNITS,
+            i.formatted_userOverrideInUnits AS USER_OVERRIDE_AMOUNT_IN_UNITS,
+            i.formatted_correctionAmountInUnits AS CORRECTION_AMOUNT_IN_UNITS,
+            i.formatted_mealAmountInUnits AS MEAL_AMOUNT_IN_UNITS,
+            i.reader_uuid,
+            i.firmwareversion AS firmware_version,
+            i.country,
+            CAST(i.date_ AS DATE) AS first_processed_date
+        FROM live.INSULIN_SILVER i
+        INNER JOIN LIVE.DEVICE_SETTINGS_SILVER d ON i.reader_uuid = d.reader_uuid
+        LEFT JOIN live.SENSOR_SILVER s ON d.device_id = s.device_id 
+        AND unix_timestamp(i.factoryRecorded) BETWEEN unix_timestamp(s.first_sched_factory_reading) 
+        AND unix_timestamp(s.last_sched_factory_reading)
+        LEFT JOIN live.useday useday ON (i.reader_uuid = useday.reader_uuid AND to_date(i.factoryRecorded) = to_date(useday.factoryRecorded))
     """)
+    return results_insulin_df.withColumn("insulin_id", F.monotonically_increasing_id())
