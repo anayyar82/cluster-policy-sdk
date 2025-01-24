@@ -1,114 +1,17 @@
-# Optimized Code
-
-from pyspark.sql import functions as F
-from pyspark.sql.window import Window
-import dlt
-import bronze_schema
-import gold_schema
-from variables_orig import *
-from data_quality import *
-from delta.tables import *
-
-# Bronze Table Optimization
-@dlt.table(temporary=temporary)
-@dlt.expect_all_or_drop(insulin_input_rules)
-def insulin_input():
-    return (spark.read.table(f"`{dmz_catalog}`.`{input_schema}`.`{insulin_table_name[:-1]}`")
-            .filter(F.col("uploaddate").between(start_date, end_date))
-            .withColumn("date_", F.lit(snapshot_date)))
-
-@dlt.table(temporary=temporary)
-def insulin_history():
-    result = spark.sql(f"SHOW TABLES IN `{history_catalog}`.`{history_schema}` LIKE '{insulin_table_name[:-1]}'").collect()
-    if result:
-        return spark.read.table(f'`{history_catalog}`.`{history_schema}`.`{insulin_table_name[:-1]}`')
-    else:
-        return spark.createDataFrame([], schema=bronze_schema.insulin_schema)
-
 @dlt.view()
-def insulin_combined():
-    return spark.sql("SELECT * from LIVE.insulin_input UNION ALL SELECT * from LIVE.insulin_history")
+def insulin_format_user_time_stamp():
+    # Read the bronze table directly
+    df = dlt.read("INSULIN_BRONZE")
 
-@dlt.view()
-def insulin_dedup():
-    window_spec = Window.partitionBy('deviceUUID', 'factoryrecorded', 'type').orderBy(F.asc("deviceuuid"), F.asc("factoryrecorded"))
-    return (spark.sql("SELECT * from LIVE.insulin_combined")
-            .withColumn("row_num", F.row_number().over(window_spec))
-            .filter(F.col("row_num") == 1)
-            .drop("row_num"))
+    # Modify userRecorded based on the condition
+    df = df.withColumn(
+        "userRecorded",
+        to_timestamp(
+            when((instr(col("userRecorded").substr(-6, 1), '+') > 0) | (instr(col("userRecorded").substr(-6, 1), '-') > 0),
+                 col("userRecorded").substr(0, length(col("userRecorded")) - 6))
+            .otherwise(col("userRecorded"))
+        )
+    )
 
-@dlt.view(name=insulin_table_name + "BRONZE")
-def insulin_threshold():
-    return spark.sql("""
-        SELECT a.* 
-        FROM live.insulin_dedup a 
-        WHERE a.accountid IN (SELECT accountid FROM live.accounts_greater_than_threshold WHERE accountid IS NOT NULL)
-    """)
-
-@dlt.table(name=insulin_table_name + "BRONZE_HISTORY", temporary=temporary)
-def insulin_update_history():
-    df = spark.sql(f"SELECT * FROM live.{insulin_table_name}BRONZE WHERE date_ = '{snapshot_date}'")
-    df.write.mode("append").format("delta").saveAsTable(f"`{marshall_catalog}`.`{history_schema}`.`{insulin_table_name[:-1]}`")
-    return df
-
-# Silver Table Optimization
-@dlt.view()
-def insulin_transformed():
-    insulin_input_transformed_df = spark.sql("""
-        SELECT
-            CAST(REPLACE(insulinonboardinunits, ',', '.') AS FLOAT) AS formatted_insulinOnboardInUnits,
-            CAST(REPLACE(correctionamountinunits, ',', '.') AS FLOAT) AS formatted_correctionAmountInUnits,
-            CAST(REPLACE(mealamountinunits, ',', '.') AS FLOAT) AS formatted_mealAmountInUnits,
-            CAST(REPLACE(useroverrideinunits, ',', '.') AS FLOAT) AS formatted_userOverrideInUnits,
-            *
-        FROM live.insulin_format_user_time_stamp
-    """)
-    return insulin_input_transformed_df.drop("insulinonboardinunits", "correctionamountsinunits", "mealamountinunits", "useroverrideinunits")
-
-@dlt.table(name=insulin_table_name + "SILVER", temporary=temporary)
-def insulin_enriched():
-    return (dlt.read('insulin_transformed')
-            .withColumn("factoryrechour", F.hour("factoryrecorded"))
-            .withColumn("userrechour", F.hour("userRecorded"))
-            .withColumn("upload_id", F.col('uploadSequence').cast('long'))
-            .withColumn("units", F.col('units').cast('float'))
-            .withColumnRenamed("deviceUUID", "reader_uuid")
-            .withColumnRenamed("deviceNationality", "country")
-            .orderBy(F.asc("reader_uuid"), F.asc("factoryrecorded")))
-
-# Gold Table Optimization
-@dlt.table(name=insulin_table_name + "GOLD", schema=gold_schema.insulin_schema)
-def insulin_fsl3():
-    results_insulin_df = spark.sql("""
-        SELECT 
-            d.device_id,
-            s.SENSOR_ID, 
-            s.SENSOR_NO, 
-            s.SENSOR_UID,
-            CAST(i.upload_id AS BIGINT),
-            i.type AS INSULIN_TYPE, 
-            i.units AS VALUE_UNITS, 
-            CAST(i.userRecorded AS TIMESTAMP) AS USER_RECORDED, 
-            CAST(i.userRecHour AS SMALLINT) AS USER_REC_HOUR,
-            CAST(i.factoryRecorded AS TIMESTAMP) AS FACTORY_RECORDED, 
-            CAST(i.FactoryRecHour AS SMALLINT) AS FACTORY_REC_HOUR,
-            CAST(((int(unix_timestamp(i.factoryRecorded)/60) - int(unix_timestamp(s.first_sched_factory_reading)/60))/1440) + 1 AS int) AS wear_day,
-            datediff(to_date(i.factoryRecorded), to_date(s.first_sched_factory_reading)) + 1 AS CALENDAR_DAY, 
-            useday.use_day AS usage_day,
-            datediff(to_date(i.factoryRecorded), to_date(d.first_sched_factory_reading)) AS OWNERSHIP_DAY,
-            i.formatted_insulinOnboardInUnits AS INSULIN_ON_BOARD_IN_UNITS,
-            i.formatted_userOverrideInUnits AS USER_OVERRIDE_AMOUNT_IN_UNITS,
-            i.formatted_correctionAmountInUnits AS CORRECTION_AMOUNT_IN_UNITS,
-            i.formatted_mealAmountInUnits AS MEAL_AMOUNT_IN_UNITS,
-            i.reader_uuid,
-            i.firmwareversion AS firmware_version,
-            i.country,
-            CAST(i.date_ AS DATE) AS first_processed_date
-        FROM live.INSULIN_SILVER i
-        INNER JOIN LIVE.DEVICE_SETTINGS_SILVER d ON i.reader_uuid = d.reader_uuid
-        LEFT JOIN live.SENSOR_SILVER s ON d.device_id = s.device_id 
-        AND unix_timestamp(i.factoryRecorded) BETWEEN unix_timestamp(s.first_sched_factory_reading) 
-        AND unix_timestamp(s.last_sched_factory_reading)
-        LEFT JOIN live.useday useday ON (i.reader_uuid = useday.reader_uuid AND to_date(i.factoryRecorded) = to_date(useday.factoryRecorded))
-    """)
-    return results_insulin_df.withColumn("insulin_id", F.monotonically_increasing_id())
+    # Convert factoryrecorded to timestamp and return the final DataFrame
+    return df.withColumn("factoryrecorded", to_timestamp(col("factoryrecorded")))
