@@ -1,172 +1,231 @@
-# Databricks notebook source
-from pyspark.sql.functions import lit, col
-
+# Import necessary libraries
+from pyspark.sql.functions import hour, to_timestamp, col, lit, expr, monotonically_increasing_id
 import dlt
 import bronze_schema
 import gold_schema
 
 from variables_orig import *
-from data_quality import *
 from data_quality_gold import *
+from data_quality import *
 
 # COMMAND ----------
-
 # MAGIC %md # Bronze Table
 
 # COMMAND ----------
-
-# MAGIC %md ### Blacklisted Accounts
+# Creating the current input table from the source
+@dlt.table(temporary=temporary)
+@dlt.expect_all_or_drop(unscheduled_input_rules)
+def current_input():
+    return (
+        spark.read.table(f"`{dmz_catalog}`.`{input_schema}`.`current`")
+        .where(col("uploaddate").between(start_date, end_date))
+        .withColumn("date_", lit(snapshot_date))
+    )
 
 # COMMAND ----------
-
+# Load historical data from the history table if it exists
 @dlt.table(temporary=temporary)
-def bronze_blacklist_account():
-    return spark.read.table(f"`{marshall_catalog}`.`{misc_schema}`.`bl-accounts`")
-
-# COMMAND ----------
-
-# MAGIC %md ### Blacklist Gold
-
-# COMMAND ----------
-
-@dlt.table(
-  name=bl_accounts_table_name + "GOLD",
-  comment="blacklist gold table",
-  schema=gold_schema.account_blacklist_schema
-)
-def gold_blacklist_account():
-    return spark.sql("""
-        SELECT 
-            accountid AS account_id,
-            reason,
-            CAST(date_added AS DATE)
-        FROM live.bronze_blacklist_account
-    """)
-
-# COMMAND ----------
-
-# MAGIC %md ### Account Details
-
-# COMMAND ----------
-
-@dlt.table(temporary=temporary)
-def account_details_input():
-    return spark.read.table(f"`{dmz_catalog}`.`{input_schema}`.`account_details`")
-
-@dlt.table(temporary=temporary)
-def account_details_threshold():
-    return spark.sql("""
-        SELECT accountid 
-        FROM live.account_details_input 
-        WHERE devicenationality IN (
-            SELECT devicenationality 
-            FROM live.account_details_input 
-            GROUP BY devicenationality 
-            HAVING COUNT(devicenationality) < 11
-        )
-    """)
-
-@dlt.table(temporary=temporary)
-def account_details_without_blacklisted_users():
-    return spark.sql("""
-        SELECT * 
-        FROM live.account_details_input 
-        WHERE accountid NOT IN (SELECT accountid FROM live.bronze_blacklist_account)
-    """)
-
-@dlt.table(temporary=temporary)
-def accounts_greater_than_threshold():
-    return spark.sql("""
-        SELECT * 
-        FROM live.account_details_without_blacklisted_users
-        WHERE accountid NOT IN (SELECT accountid FROM live.account_details_threshold)
-    """)
-
-@dlt.table(
-    name="ACCOUNT_GOLD",
-    schema=gold_schema.account_schema
-)
-def account_details_gold():
-    return spark.sql("""
-        SELECT 
-            accountid AS account_id,
-            devicenationality AS reader_nationality,
-            CAST(agerangelower AS INTEGER) AS age_range_lower,
-            CAST(agerangeupper AS INTEGER) AS age_range_upper
-        FROM live.accounts_greater_than_threshold
-        INNER JOIN live.whitelisted_countries
-        ON live.accounts_greater_than_threshold.devicenationality = live.whitelisted_countries.code
-    """)
-
-# COMMAND ----------
-
-# MAGIC %md ### Account Devices
-
-# COMMAND ----------
-
-@dlt.table(temporary=temporary)
-def account_input():
-    return (spark.read
-            .table(f"`{dmz_catalog}`.`{input_schema}`.`account_devices`")
-            .where(col("uploaddate").between(start_date, end_date))
-            .withColumn("date_", lit(snapshot_date)))
-
-@dlt.table(temporary=temporary)
-def account_history():
-    query = f"SHOW TABLES IN `{history_catalog}`.`{history_schema}` LIKE 'account_devices'"
-    result = spark.sql(query)
-    
-    # Instead of collecting, check if the table exists
-    if result.count() > 0:
-        return spark.read.table(f"`{history_catalog}`.`{history_schema}`.`account_devices`")
+def current_history():
+    query = f"SHOW TABLES IN `{history_catalog}`.`{history_schema}` LIKE 'current'"
+    result = spark.sql(query).collect()
+    if result:
+        return spark.read.table(f"`{history_catalog}`.`{history_schema}`.`current`")
     else:
-        return spark.createDataFrame([], schema=bronze_schema.account_devices_schema)
+        return spark.createDataFrame([], schema=bronze_schema.current_schema)
 
-@dlt.view()
-def account_combined():
-    account_input_df = spark.read.table("LIVE.account_input")
-    account_history_df = spark.read.table("LIVE.account_history")
-    
-    # Repartition the data to avoid shuffle during the UNION operation
-    combined_df = account_input_df.union(account_history_df)
-    return combined_df.dropDuplicates(subset=['accountid', 'deviceuuid']).repartition("accountid")
-
-@dlt.table(
-    name=account_devices_table_name + "GOLD",
-    comment="final account devices",
-    schema=gold_schema.account_devices_schema
-)
-def account_final():
+# COMMAND ----------
+# Combine current and historical data
+@dlt.view
+def current_combined():
     return spark.sql("""
-        SELECT 
-            accountid AS account_id,
-            deviceUUID AS reader_uuid,
-            CAST(date_ AS DATE) AS first_processed_date  
-        FROM LIVE.account_combined 
-        WHERE deviceUUID IN (
-            SELECT DISTINCT(reader_uuid) 
-            FROM LIVE.DEVICE_SETTINGS_SILVER
+        SELECT * FROM LIVE.current_input
+        UNION ALL
+        SELECT * FROM LIVE.current_history
+    """)
+
+# COMMAND ----------
+# Deduplicate combined data
+@dlt.view
+def current_dedup():
+    return (
+        spark.sql("""
+            SELECT * 
+            FROM LIVE.current_combined
+            ORDER BY deviceuuid ASC, factoryRecorded ASC, uploadsequence ASC, date_ ASC
+        """)
+        .dropDuplicates(subset=['deviceUUID', 'factoryrecorded'])
+    )
+
+# COMMAND ----------
+# Exclude blacklisted accounts
+@dlt.view
+def current_blacklist():
+    return spark.sql("""
+        SELECT a.* 
+        FROM LIVE.current_dedup AS a 
+        LEFT JOIN LIVE.bronze_blacklist_account AS b 
+        ON a.accountid = b.accountid 
+        WHERE b.accountId IS NULL
+    """)
+
+# COMMAND ----------
+# Filter accounts by threshold
+@dlt.view(
+    name=current_table_name + "BRONZE"
+)
+def current_threshold():
+    return spark.sql("""
+        SELECT a.* 
+        FROM LIVE.current_blacklist AS a 
+        WHERE a.accountid IN (
+            SELECT accountid 
+            FROM LIVE.accounts_greater_than_threshold 
+            WHERE accountid IS NOT NULL
         )
     """)
 
+# COMMAND ----------
+# Update history with the latest records
 @dlt.table(
-    name=account_devices_table_name + "BRONZE_HISTORY",
-    comment="bronze account devices",
+    name=current_table_name + "BRONZE_HISTORY",
+    comment="Bronze history of current data",
     temporary=temporary
 )
-def account_devices_update_history():
+def current_update_history():
     df = spark.sql(f"""
-        SELECT 
-            ac.account_id AS accountid, 
-            ac.reader_uuid AS deviceuuid, 
-            ac.first_processed_date AS date_ 
-        FROM live.{account_devices_table_name}GOLD ac 
-        WHERE ac.first_processed_date = '{snapshot_date}'
+        SELECT * 
+        FROM LIVE.{current_table_name}BRONZE 
+        WHERE date_ = '{snapshot_date}'
     """)
-    
-    df.write.mode("append").format("delta")\
-        .option('nullValue', None)\
-        .option("mergeSchema", "true")\
-        .saveAsTable(f"`{marshall_catalog}`.`{history_schema}`.`account_devices`")
-    
+    df.write.mode("append").format("delta").option('nullValue', None).saveAsTable(
+        f"`{marshall_catalog}`.`{history_schema}`.`current`"
+    )
     return df
+
+# COMMAND ----------
+# MAGIC %md # Silver Table
+
+# COMMAND ----------
+# Format time columns and filter records
+@dlt.view
+def current_filtered():
+    time_df = spark.sql(f"""
+        SELECT 
+            IF(INSTR(RIGHT(userrecorded,6), '+') > 0 OR INSTR(RIGHT(userrecorded,6), '-') > 0, 
+                SUBSTR(userrecorded, 0, LENGTH(userrecorded) - 6), userrecorded) AS userRecorded_modified, 
+            * 
+        FROM LIVE.CURRENT_GLUCOSE_READING_BRONZE
+    """)
+    return (
+        time_df.drop("userrecorded")
+        .withColumnRenamed("userRecorded_modified", "userrecorded")
+        .withColumn("userrecorded", to_timestamp(col("userrecorded")))
+        .withColumn("factoryrecorded", to_timestamp(col("factoryrecorded")))
+    )
+
+# COMMAND ----------
+# Create silver table with necessary transformations
+@dlt.table(
+    name=current_table_name + "SILVER",
+    comment="Silver table for current data",
+    temporary=temporary
+)
+def current_silver():
+    new_df = spark.sql("SELECT * FROM LIVE.current_filtered")
+    new_df = (
+        new_df.withColumn("factoryrechour", hour(new_df.factoryrecorded))
+        .withColumn("userrechour", hour(new_df.userrecorded))
+        .withColumn("uploadSequence", col("uploadSequence").cast("long"))
+        .withColumn("factoryrecorded", col("factoryrecorded").cast("timestamp"))
+        .withColumnRenamed("deviceUUID", "reader_uuid")
+        .withColumnRenamed("deviceNationality", "country")
+        .withColumnRenamed("uploadSequence", "upload_id")
+        .withColumnRenamed("firmwareVersion", "firmware")
+    )
+    return new_df.orderBy("reader_uuid", "factoryrecorded")
+
+# COMMAND ----------
+# MAGIC %md # Gold Table
+
+# COMMAND ----------
+# Prepare the gold table by extracting required columns and computing flags
+@dlt.table(temporary=temporary)
+def current_prepared():
+    results_current_df = spark.sql("""
+        SELECT
+            device.device_id,
+            sensor.sensor_no,
+            sensor.sensor_id,
+            sensor.sensor_uid,
+            current_glucose.upload_id,
+            CASE 
+                WHEN (INT((INT(UNIX_TIMESTAMP(current_glucose.factoryRecorded) / 60) - INT(UNIX_TIMESTAMP(sensor.first_sched_factory_reading) / 60)) / 1440) + 1) > 14 
+                THEN 1 ELSE 0 
+            END AS irregular_reading,
+            ROUND(current_glucose.mgdl, 0) AS value_mgdl,
+            current_glucose.userrecorded,
+            current_glucose.userRecHour AS user_rec_hour,
+            current_glucose.factoryRecorded AS factory_recorded,
+            current_glucose.factoryRecHour AS factory_rec_hour,
+            device.reader_uuid,
+            device.firmware AS firmware_version,
+            sensor.first_sched_factory_reading,
+            sensor.last_sched_factory_reading,
+            current_glucose.highoutofrange AS high_out_of_range, 
+            current_glucose.lowoutofrange AS low_out_of_range,
+            current_glucose.viewed AS is_viewed,
+            current_glucose.actionable AS is_actionable,
+            current_glucose.streaming AS is_streaming,
+            current_glucose.trendarrow AS trend_arrow,
+            CAST(current_glucose.date_ AS date) AS first_processed_date
+        FROM 
+            LIVE.CURRENT_GLUCOSE_READING_SILVER AS current_glucose 
+        INNER JOIN LIVE.DEVICE_SETTINGS_SILVER AS device 
+            ON current_glucose.reader_uuid = device.reader_uuid
+        INNER JOIN LIVE.SENSOR_SILVER AS sensor 
+            ON device.device_id = sensor.device_id 
+            AND UNIX_TIMESTAMP(current_glucose.factoryRecorded) BETWEEN 
+                UNIX_TIMESTAMP(sensor.first_sched_factory_reading) 
+                AND UNIX_TIMESTAMP(sensor.last_sched_factory_reading)
+        ORDER BY device.reader_uuid, sensor.sensor_no, current_glucose.factoryRecorded
+    """)
+    return results_current_df.withColumn("current_glucose_id", monotonically_increasing_id())
+
+# COMMAND ----------
+# Join alarms to create the final gold table
+@dlt.view()
+def ondemand_alarms():
+    return spark.sql("""
+        SELECT 
+            factoryrecorded,
+            userrecorded,
+            reader_uuid,
+            MAX(CASE WHEN "type" = 'low' THEN 1 ELSE 0 END) AS ondemand_low_alarm,
+            MAX(CASE WHEN "type" = 'high' THEN 1 ELSE 0 END) AS ondemand_high_alarm,
+            MAX(CASE WHEN "type" = 'projectedlow' THEN 1 ELSE 0 END) AS ondemand_projected_low_alarm,
+            MAX(CASE WHEN "type" = 'projectedhigh' THEN 1 ELSE 0 END) AS ondemand_projected_high_alarm
+        FROM 
+            (SELECT factoryrecorded, userrecorded, reader_uuid, "type" FROM LIVE.GENERIC_SILVER WHERE "type" IN ('low', 'high', 'projectedlow', 'projectedhigh')) AS alarms
+        GROUP BY factoryrecorded, userrecorded, reader_uuid
+    """)
+
+# Final Gold table creation
+@dlt.table(
+    name=current_table_name + "GOLD",
+    comment="Gold table for current data",
+    schema=gold_schema.current_schema
+)
+def current_gold(): 
+    return spark.sql("""
+        SELECT 
+            current_glucose.*, 
+            CAST(ondemand_low_alarm AS BOOLEAN),
+            CAST(ondemand_high_alarm AS BOOLEAN),
+            CAST(ondemand_projected_low_alarm AS BOOLEAN),
+            CAST(ondemand_projected_high_alarm AS BOOLEAN)
+        FROM 
+            LIVE.current_prepared AS current_glucose
+        LEFT JOIN LIVE.ondemand_alarms 
+            ON current_glucose.reader_uuid = ondemand_alarms.reader_uuid 
+            AND current_glucose.factory_recorded = ondemand_alarms.factoryrecorded
+    """)
